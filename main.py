@@ -1,4 +1,4 @@
-import requests, json, time, threading, random
+import requests, json, time, threading, random, os
 from urllib3.exceptions import InsecureRequestWarning
 
 settings = json.load(open("settings.json", "r"))
@@ -8,19 +8,17 @@ requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 session = requests.session()
 session.cookies['.ROBLOSECURITY'] = settings["cookie"]
 
-token = "abcabcabc"
+token = None
 payload = [{ "itemType": "Asset", "id": id } for id in settings["items"]]
 cache = []
+
+logs = []
+checks = 0
 
 def refresh_tokens():
     while True:
         _set_auth()
         time.sleep(150)
-
-def generate_watch_preflight():
-    watch_preflight_octets = [random.randint(0, 255) for _ in range(4)]
-    preflight_address = ".".join(str(octet) for octet in watch_preflight_octets)
-    return preflight_address
 
 def _set_auth():
     global token, session
@@ -50,6 +48,8 @@ def get_product_id(id):
         return get_product_id(id)
 
 def buy_item(product_id, seller_id, price):
+    global logs
+
     try:
         body = {
             "expectedCurrency": 1,
@@ -58,46 +58,65 @@ def buy_item(product_id, seller_id, price):
         }
         headers = {
             "x-csrf-token": token,
-            "x-forwarded-for": str(generate_watch_preflight())
         }
         conn = session.post(f"https://economy.roblox.com/v1/purchases/products/{product_id}", headers=headers, json=body)
         data = conn.json()
         if conn.status_code == 200:
             if ("purchased" in data) and data["purchased"] == True:
-                print(f"Bought {data['assetName']}")
+                logs.append(f"Bought {data['assetName']}")
         else:
             return buy_item(product_id, seller_id, price)
     except:
         return buy_item(product_id, seller_id, price)
 
+def status_update():
+    global checks, logs
+
+    while True:
+        print("made by frames, discord.gg/mewt")
+        print(f"Checks: {checks}")
+        print(f"Logs: \n" + "\n".join(log for log in logs[-10:]))
+
+        time.sleep(1)
+        os.system('cls' if os.name == 'nt' else 'clear')
+
 def watcher():
-    global token, session
+    global token, session, checks, logs
     while True:
         try:
             headers = {
                 "x-csrf-token": token,
                 "cache-control": "no-cache",
                 "pragma": "no-cache",
-                "X-Forwarded-For": str(generate_watch_preflight())
             }
             conn = session.post("https://catalog.roblox.com/v1/catalog/items/details", json={ "items": payload }, headers=headers, verify=False)
 
             data = conn.json()
             if conn.status_code == 200:
+                checks+= 1
                 if "data" in data:
                     for item in data["data"]:
                         if "price" in item and not item["id"] in cache and not item["price"] > settings["items"][str(item["id"])]:
                             cache.append(item["id"])
                             r_data = get_product_id(item["id"])
-                            print("Buying item")
+                            logs.append("Buying item")
                             buy_item(r_data["id"], r_data["creator"], item["price"])
             elif conn.status_code == 403:
+                logs.append('force refreshing auth token')
                 _set_auth()
-        except:
+            else:
+                logs.append(f"{data}, status: {conn.status_code}")
+        except Exception as error:
+            logs.append(str(error))
             pass
-        time.sleep(1)
+        time.sleep(settings["watch_speed"])
 
 
 if __name__ == '__main__':
     threading.Thread(target=refresh_tokens,).start()
+    print("Waiting to fetch token, restart if it takes too long")
+    while token == None:
+        time.sleep(1)
+    print("Fetched token")
+    threading.Thread(target=status_update,).start()
     threading.Thread(target=watcher,).start()
