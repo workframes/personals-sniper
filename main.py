@@ -96,7 +96,7 @@ def watcher():
                 checks+= 1
                 if "data" in data:
                     for item in data["data"]:
-                        if "price" in item and not item["id"] in cache and not item["price"] > settings["items"][str(item["id"])]:
+                        if "price" in item and not item["id"] in cache and not int(item.get("price", 0)) > int(settings["items"].get(str(item["id"]), 0)):
                             cache.append(item["id"])
                             r_data = get_product_id(item["id"])
                             logs.append("Buying item")
